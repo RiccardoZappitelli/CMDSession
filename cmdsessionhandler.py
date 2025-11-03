@@ -1,7 +1,16 @@
+import re
+from time import sleep
 import subprocess as sp
+from threading import Thread
+
+def is_cmd_prompt(line: str) -> bool:
+    pattern = r'^[A-Z]:\\(?:[^\\<>:"/|?*\r\n]+\\)*[^\\<>:"/|?*\r\n]*>.*$'
+    return bool(re.match(pattern, line))
 
 class CMDSession:
-    def __init__(self):
+    def __init__(self, remove_prompt: bool = True):
+        self.last_input: str = ""
+        self.remove_prompt = remove_prompt
         self.cmd_session = sp.Popen(
             ["cmd.exe"],
             stdout=sp.PIPE,
@@ -9,26 +18,36 @@ class CMDSession:
             stdin=sp.PIPE,
             text=True,
             bufsize=1,
+            encoding="mbcs"
         )
     
-    def read_output(self):
+    def read_output(self, parsing_function=print):
         """Read stdout line by line and print."""
         while True:
             line = self.cmd_session.stdout.readline()
             if not line:
                 break
-            print(line, end='')
+            if not is_cmd_prompt(line) and self.remove_prompt:
+                parsing_function(line)
     
-    def read_error(self):
+    def read_error(self, parsing_function=print):
         """Read stderr line by line and print."""
         while True:
             line = self.cmd_session.stderr.readline()
             if not line:
                 break
-            print(line, end='')
+            if not is_cmd_prompt(line) and self.remove_prompt:
+                parsing_function(line)
+
+    def run_output_reader_thread(self, parsing_function_output=print, parsing_function_error=print):
+        oth = Thread(target=self.read_output, args=(parsing_function_output,))
+        eth = Thread(target=self.read_error, args=(parsing_function_error,))
+        oth.start()
+        eth.start()
     
     def write_input(self, message: str):
         """Write message to stdin."""
+        self.last_input = message
         self.cmd_session.stdin.write(message + "\n")
         self.cmd_session.stdin.flush()
     
